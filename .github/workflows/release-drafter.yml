@@ -16,7 +16,7 @@ jobs:
     permissions:
       contents: write # write access is required to create/edit release drafts
       pull-requests: read
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: release-drafter/release-drafter@v5
         env:
