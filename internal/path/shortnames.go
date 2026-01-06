@@ -40,32 +40,30 @@ func ToShortPath(path string) (string, bool) {
 
 // ShortenSuffix shortens the suffix of a path that contains environment variables
 // E.g., %LOCALAPPDATA%\Microsoft\WinGet -> %LOCALAPPDATA%\MICROS~1\WinGet
-func ShortenSuffix(pathWithVar string) (string, bool) {
+// extractVarAndSuffix extracts the variable part and suffix from a path
+func extractVarAndSuffix(pathWithVar string) (varPart, suffix string, ok bool) {
 	if !strings.Contains(pathWithVar, "%") {
-		return pathWithVar, false
+		return "", "", false
 	}
 
-	// Find where the variable ends
 	lastPercent := strings.LastIndex(pathWithVar, "%")
 	if lastPercent == -1 || lastPercent == len(pathWithVar)-1 {
-		return pathWithVar, false
+		return "", "", false
 	}
 
-	varPart := pathWithVar[:lastPercent+1]
-	suffix := pathWithVar[lastPercent+1:]
+	varPart = pathWithVar[:lastPercent+1]
+	suffix = pathWithVar[lastPercent+1:]
 
 	if suffix == "" || suffix == "\\" {
-		return pathWithVar, false
+		return "", "", false
 	}
 
-	// Expand the variable to get the real path
-	expanded := ExpandEnvVars(pathWithVar)
-	if expanded == "" || expanded == pathWithVar {
-		return pathWithVar, false
-	}
+	return varPart, suffix, true
+}
 
-	// Get the 8.3 short path of the expanded version
-	command := fmt.Sprintf(`
+// getShortPathCommand returns the PowerShell command to get short path
+func getShortPathCommand(expanded string) string {
+	return fmt.Sprintf(`
 		$ErrorActionPreference = 'SilentlyContinue'
 		$path = '%s'
 		if (Test-Path -LiteralPath $path) {
@@ -79,13 +77,25 @@ func ShortenSuffix(pathWithVar string) (string, bool) {
 			} catch { $path }
 		} else { $path }
 	`, strings.ReplaceAll(expanded, "'", "''"))
+}
 
+func ShortenSuffix(pathWithVar string) (string, bool) {
+	varPart, _, ok := extractVarAndSuffix(pathWithVar)
+	if !ok {
+		return pathWithVar, false
+	}
+
+	expanded := ExpandEnvVars(pathWithVar)
+	if expanded == "" || expanded == pathWithVar {
+		return pathWithVar, false
+	}
+
+	command := getShortPathCommand(expanded)
 	shortExpanded, err := RunPowerShell(command)
 	if err != nil || shortExpanded == "" || shortExpanded == expanded {
 		return pathWithVar, false
 	}
 
-	// Find what the variable expands to
 	expandedVarValue := ExpandEnvVars(varPart)
 	if strings.HasPrefix(strings.ToLower(shortExpanded), strings.ToLower(expandedVarValue)) {
 		shortSuffix := shortExpanded[len(expandedVarValue):]

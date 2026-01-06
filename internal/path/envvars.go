@@ -38,7 +38,7 @@ func SubstituteEnvVars(path string) (string, bool) {
 	// E.g., C:\Users\JEREMY~1\AppData\Local -> C:\Users\Jeremy\AppData\Local
 	normalizedPath := expandShortUserPath(path)
 	pathLower := strings.ToLower(normalizedPath)
-	
+
 	envVars := GetAllEnvVars()
 
 	var bestMatch struct {
@@ -60,7 +60,7 @@ func SubstituteEnvVars(path string) (string, bool) {
 			if remaining == "" || remaining[0] == '\\' || remaining[0] == '/' {
 				newPath := "%" + varName + "%" + remaining
 				saved := len(path) - len(newPath)
-				
+
 				// Keep the match that saves the most characters (most specific)
 				if saved > bestMatch.saved {
 					bestMatch.varName = varName
@@ -86,7 +86,7 @@ func expandShortUserPath(path string) string {
 	if systemDrive == "" {
 		systemDrive = "c:"
 	}
-	
+
 	usersDir := systemDrive + "\\users\\"
 	if !strings.HasPrefix(pathLower, usersDir) {
 		return path
@@ -98,9 +98,9 @@ func expandShortUserPath(path string) string {
 	if nextSlash == -1 {
 		return path
 	}
-	
+
 	userPart := afterUsers[:nextSlash]
-	
+
 	// Check if it's a short name (contains ~)
 	if !strings.Contains(userPart, "~") {
 		return path
@@ -117,7 +117,7 @@ func expandShortUserPath(path string) string {
 	if !strings.HasPrefix(userProfileLower, usersDir) {
 		return path
 	}
-	
+
 	realUserPart := userProfile[len(usersDir):]
 	if idx := strings.Index(realUserPart, "\\"); idx != -1 {
 		realUserPart = realUserPart[:idx]

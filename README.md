@@ -1,5 +1,19 @@
 <div align="center">
   <img src=".github/assets/banner.jpg" alt="WinPath Logo" />
+  <p>
+    <a href="https://github.com/quantumJLBass/winpath/actions/workflows/ci.yml">
+      <img src="https://github.com/quantumJLBass/winpath/actions/workflows/ci.yml/badge.svg" alt="Build Status" />
+    </a>
+    <a href="https://github.com/quantumJLBass/winpath/actions/workflows/lint.yml">
+      <img src="https://github.com/quantumJLBass/winpath/actions/workflows/lint.yml/badge.svg" alt="Lint Status" />
+    </a>
+    <a href="https://goreportcard.com/report/github.com/quantumJLBass/winpath">
+      <img src="https://goreportcard.com/badge/github.com/quantumJLBass/winpath" alt="Go Report Card" />
+    </a>
+    <a href="https://github.com/quantumJLBass/winpath/releases">
+      <img src="https://img.shields.io/github/v/release/quantumJLBass/winpath?style=flat-square&color=00ADD8" alt="Latest Release" />
+    </a>
+  </p>
   <h1>WinPath: Windows PATH Optimizer</h1>
   <p>
     <strong>A professional TUI for mastering your Windows Environment Variables.</strong>
@@ -20,6 +34,29 @@
 </div>
 
 <br />
+
+> [!CAUTION]
+> **USE AT YOUR OWN RISK - READ BEFORE USING**
+>
+> This software modifies **critical Windows system environment variables** (PATH and PATHEXT).
+> Incorrect modifications can cause:
+>
+> - Applications failing to start or function
+> - System instability or boot failures
+> - Loss of access to command-line tools
+> - Inability to run scripts or executables
+>
+> **YOU ARE SOLELY RESPONSIBLE** for any consequences of using this software. The author
+> accepts NO LIABILITY for any damage, data loss, system failures, or other issues.
+>
+> **BEFORE USING:**
+>
+> 1. Create a Windows System Restore Point
+> 2. Export your current PATH values manually
+> 3. Understand what changes will be made before applying them
+>
+> By using this software, you acknowledge that you have read and accept the full
+> [LICENSE](LICENSE) terms, including the liability disclaimer.
 
 ## ⚡ Introduction
 
@@ -156,15 +193,15 @@ Start-Process -Verb RunAs .\WinPath.exe
 
 ### Keyboard Shortcuts
 
-| Key | Action |
-| --- | --- |
-| `↑` / `↓` | Navigate Menu / Scroll Lists |
-| `Enter` | Select / Confirm |
-| `1` - `8` | Quick Jump to Menu Item |
-| `S` | Switch Scope (User / System) |
-| `A` | Apply Changes |
-| `C` | Copy to Clipboard / Create |
-| `Esc` / `Q` | Back / Quit |
+| Key         | Action                           |
+|-------------|----------------------------------|
+| `↑` / `↓`   | Navigate Menu / Scroll Lists     |
+| `Enter`     | Select / Confirm                 |
+| `1` - `8`   | Quick Jump to Menu Item          |
+| `S`         | Switch Scope (User / System)     |
+| `A`         | Apply Changes                    |
+| `C`         | Copy to Clipboard / Create       |
+| `Esc` / `Q` | Back / Quit                      |
 
 ---
 

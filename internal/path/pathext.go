@@ -9,10 +9,10 @@ const DefaultPathExt = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC"
 
 // ExtensionInfo contains information about a file extension
 type ExtensionInfo struct {
-	Ext         string
-	Description string
-	Priority    int // Lower = higher priority
-	IsLegacy    bool
+	Ext          string
+	Description  string
+	Priority     int // Lower = higher priority
+	IsLegacy     bool
 	IsRarelyUsed bool
 }
 
@@ -36,20 +36,20 @@ var ExtensionDatabase = map[string]ExtensionInfo{
 
 // OptimalOrder is the recommended extension order
 var OptimalOrder = []string{
-	".EXE",  // Most common executable
-	".CMD",  // Modern command scripts
-	".BAT",  // Legacy batch files
-	".PS1",  // PowerShell scripts
-	".PY",   // Python scripts
-	".PYW",  // Python scripts (no console)
-	".COM",  // Legacy DOS (after modern formats)
-	".MSC",  // Management console
-	".JS",   // JScript (rarely used standalone)
-	".VBS",  // VBScript (legacy)
-	".VBE",  // Encoded VBScript
-	".JSE",  // Encoded JScript
-	".WSF",  // Windows Script File
-	".WSH",  // Windows Script Host
+	".EXE", // Most common executable
+	".CMD", // Modern command scripts
+	".BAT", // Legacy batch files
+	".PS1", // PowerShell scripts
+	".PY",  // Python scripts
+	".PYW", // Python scripts (no console)
+	".COM", // Legacy DOS (after modern formats)
+	".MSC", // Management console
+	".JS",  // JScript (rarely used standalone)
+	".VBS", // VBScript (legacy)
+	".VBE", // Encoded VBScript
+	".JSE", // Encoded JScript
+	".WSF", // Windows Script File
+	".WSH", // Windows Script Host
 }
 
 // RemovableExtensions are rarely used and can be removed
@@ -133,28 +133,17 @@ func GetExtensionInfo(ext string) ExtensionInfo {
 		return info
 	}
 	return ExtensionInfo{
-		Ext:         ext,
-		Description: "Unknown extension",
-		Priority:    99,
-		IsLegacy:    false,
+		Ext:          ext,
+		Description:  "Unknown extension",
+		Priority:     99,
+		IsLegacy:     false,
 		IsRarelyUsed: false,
 	}
 }
 
 // AnalyzePathExt analyzes PATHEXT for optimization opportunities
-func AnalyzePathExt() PathExtAnalysis {
-	current := ParsePathExt("")
-	analysis := PathExtAnalysis{
-		Current:        current,
-		IsOptimal:      true,
-		HasUserPathExt: HasUserPathExt(),
-	}
-
-	// Build current with info
-	for _, ext := range current {
-		analysis.CurrentWithInfo = append(analysis.CurrentWithInfo, GetExtensionInfo(ext))
-	}
-
+// checkUserPathExt checks if user PATHEXT is defined
+func checkUserPathExt(analysis *PathExtAnalysis) {
 	if analysis.HasUserPathExt {
 		analysis.Issues = append(analysis.Issues, PathExtIssue{
 			Type:    "info",
@@ -162,8 +151,10 @@ func AnalyzePathExt() PathExtAnalysis {
 			Impact:  "info",
 		})
 	}
+}
 
-	// Check if .EXE is first
+// checkExePosition checks if .EXE is in the first position
+func checkExePosition(analysis *PathExtAnalysis, current []string) {
 	exeIndex := indexOf(current, ".EXE")
 	if exeIndex != 0 {
 		analysis.Issues = append(analysis.Issues, PathExtIssue{
@@ -174,8 +165,10 @@ func AnalyzePathExt() PathExtAnalysis {
 		analysis.Recommendations = append(analysis.Recommendations, "Move .EXE to the first position")
 		analysis.IsOptimal = false
 	}
+}
 
-	// Check if .CMD is before .BAT
+// checkCmdBatOrder checks if .CMD comes before .BAT
+func checkCmdBatOrder(analysis *PathExtAnalysis, current []string) {
 	cmdIndex := indexOf(current, ".CMD")
 	batIndex := indexOf(current, ".BAT")
 	if cmdIndex > batIndex && batIndex >= 0 {
@@ -187,8 +180,10 @@ func AnalyzePathExt() PathExtAnalysis {
 		analysis.Recommendations = append(analysis.Recommendations, "Move .CMD before .BAT")
 		analysis.IsOptimal = false
 	}
+}
 
-	// Check if .PY is present but low priority
+// checkPythonPosition checks if .PY is in a reasonable position
+func checkPythonPosition(analysis *PathExtAnalysis, current []string) {
 	pyIndex := indexOf(current, ".PY")
 	if pyIndex > 5 && pyIndex != -1 {
 		analysis.Issues = append(analysis.Issues, PathExtIssue{
@@ -197,8 +192,10 @@ func AnalyzePathExt() PathExtAnalysis {
 			Impact:  "low",
 		})
 	}
+}
 
-	// Check for rarely-used extensions
+// checkRemovableExtensions checks for rarely-used extensions
+func checkRemovableExtensions(analysis *PathExtAnalysis, current []string) {
 	var removable []string
 	for _, ext := range current {
 		if contains(RemovableExtensions, ext) {
@@ -213,9 +210,12 @@ func AnalyzePathExt() PathExtAnalysis {
 		})
 		analysis.Recommendations = append(analysis.Recommendations, "Consider removing: "+strings.Join(removable, ", "))
 	}
+}
 
-	// Check if .COM is before .EXE
+// checkComBeforeExe checks if .COM is checked before .EXE
+func checkComBeforeExe(analysis *PathExtAnalysis, current []string) {
 	comIndex := indexOf(current, ".COM")
+	exeIndex := indexOf(current, ".EXE")
 	if comIndex >= 0 && comIndex < exeIndex {
 		analysis.Issues = append(analysis.Issues, PathExtIssue{
 			Type:    "legacy",
@@ -225,6 +225,27 @@ func AnalyzePathExt() PathExtAnalysis {
 		analysis.Recommendations = append(analysis.Recommendations, "Move .COM after .EXE")
 		analysis.IsOptimal = false
 	}
+}
+
+func AnalyzePathExt() PathExtAnalysis {
+	current := ParsePathExt("")
+	analysis := PathExtAnalysis{
+		Current:        current,
+		IsOptimal:      true,
+		HasUserPathExt: HasUserPathExt(),
+	}
+
+	// Build current with info
+	for _, ext := range current {
+		analysis.CurrentWithInfo = append(analysis.CurrentWithInfo, GetExtensionInfo(ext))
+	}
+
+	checkUserPathExt(&analysis)
+	checkExePosition(&analysis, current)
+	checkCmdBatOrder(&analysis, current)
+	checkPythonPosition(&analysis, current)
+	checkRemovableExtensions(&analysis, current)
+	checkComBeforeExe(&analysis, current)
 
 	return analysis
 }

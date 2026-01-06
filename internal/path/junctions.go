@@ -45,7 +45,7 @@ func EnsureJunctionFolder() error {
 // ListJunctions returns all junctions in the junction folder
 func ListJunctions() []Junction {
 	folder := GetJunctionFolder()
-	
+
 	// Use PowerShell to properly detect junctions
 	command := fmt.Sprintf(`
 		$folder = '%s'
@@ -57,12 +57,12 @@ func ListJunctions() []Junction {
 			}
 		}
 	`, strings.ReplaceAll(folder, "'", "''"))
-	
+
 	result, err := RunPowerShell(command)
 	if err != nil || result == "" {
 		return []Junction{}
 	}
-	
+
 	junctions := make([]Junction, 0)
 	lines := strings.Split(result, "\n")
 	for _, line := range lines {
@@ -79,7 +79,7 @@ func ListJunctions() []Junction {
 			})
 		}
 	}
-	
+
 	return junctions
 }
 
@@ -185,77 +185,86 @@ func SuggestJunctionCandidates() []JunctionSuggestion {
 }
 
 // generateJunctionName creates a unique short name for a junction
+// cleanNameChars removes invalid characters from a name, keeping only alphanumeric, dash, underscore
+func cleanNameChars(name string, keepDashUnderscore bool) string {
+	return strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		if keepDashUnderscore && (r == '-' || r == '_') {
+			return r
+		}
+		return -1
+	}, strings.ToLower(name))
+}
+
+// truncateName truncates a name to maxLen characters
+func truncateName(name string, maxLen int) string {
+	if len(name) > maxLen {
+		return name[:maxLen]
+	}
+	return name
+}
+
+// tryUniqueWithParent attempts to create a unique name using parent folder prefix
+func tryUniqueWithParent(path, cleanName string, usedNames map[string]int) string {
+	parent := filepath.Base(filepath.Dir(path))
+	if parent == "" || parent == "." || parent == "\\" {
+		return ""
+	}
+
+	parentClean := truncateName(cleanNameChars(parent, false), 4)
+	if parentClean == "" {
+		return ""
+	}
+
+	uniqueName := truncateName(parentClean+"-"+cleanName, 12)
+	if usedNames[strings.ToLower(uniqueName)] == 0 {
+		return uniqueName
+	}
+	return ""
+}
+
+// tryUniqueWithNumber attempts to create a unique name with numeric suffix
+func tryUniqueWithNumber(cleanName string, usedNames map[string]int) string {
+	for i := 2; i <= 99; i++ {
+		suffix := fmt.Sprintf("%d", i)
+		baseLen := 10 - len(suffix)
+		if baseLen > len(cleanName) {
+			baseLen = len(cleanName)
+		}
+		numName := cleanName[:baseLen] + suffix
+		if usedNames[strings.ToLower(numName)] == 0 {
+			return numName
+		}
+	}
+	return ""
+}
+
 func generateJunctionName(path string, usedNames map[string]int) string {
-	// Get the last component
 	baseName := filepath.Base(path)
 	if baseName == "" || baseName == "." || baseName == "\\" {
 		return ""
 	}
 
-	// Clean up the base name
-	cleanName := strings.ToLower(baseName)
-	cleanName = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			return r
-		}
-		return -1
-	}, cleanName)
-
+	cleanName := cleanNameChars(baseName, true)
 	if cleanName == "" {
 		cleanName = "dir"
 	}
-
-	// Truncate to 8 chars max for the base
-	if len(cleanName) > 8 {
-		cleanName = cleanName[:8]
-	}
+	cleanName = truncateName(cleanName, 8)
 
 	// Check if name is already used
-	baseLower := strings.ToLower(cleanName)
-	if usedNames[baseLower] == 0 {
+	if usedNames[strings.ToLower(cleanName)] == 0 {
 		return cleanName
 	}
 
-	// Name collision - try to make it unique using parent folder
-	parent := filepath.Base(filepath.Dir(path))
-	if parent != "" && parent != "." && parent != "\\" {
-		parentClean := strings.ToLower(parent)
-		parentClean = strings.Map(func(r rune) rune {
-			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-				return r
-			}
-			return -1
-		}, parentClean)
-
-		if len(parentClean) > 4 {
-			parentClean = parentClean[:4]
-		}
-
-		if parentClean != "" {
-			uniqueName := parentClean + "-" + cleanName
-			if len(uniqueName) > 12 {
-				uniqueName = uniqueName[:12]
-			}
-			uniqueLower := strings.ToLower(uniqueName)
-			if usedNames[uniqueLower] == 0 {
-				return uniqueName
-			}
-		}
+	// Try with parent folder prefix
+	if uniqueName := tryUniqueWithParent(path, cleanName, usedNames); uniqueName != "" {
+		return uniqueName
 	}
 
-	// Still collision - add a number
-	for i := 2; i <= 99; i++ {
-		numName := fmt.Sprintf("%s%d", cleanName, i)
-		if len(numName) > 10 {
-			numName = cleanName[:8-len(fmt.Sprintf("%d", i))] + fmt.Sprintf("%d", i)
-		}
-		numLower := strings.ToLower(numName)
-		if usedNames[numLower] == 0 {
-			return numName
-		}
-	}
-
-	return ""
+	// Try with numeric suffix
+	return tryUniqueWithNumber(cleanName, usedNames)
 }
 
 // CalculateJunctionSavings calculates total chars saved if all suggested junctions were applied

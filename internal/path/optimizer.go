@@ -36,29 +36,30 @@ type PathChange struct {
 	Saved    int
 }
 
+// PathInfo contains path metadata
+type PathInfo struct {
+	Raw     string
+	Entries []string
+	Length  int
+	Count   int
+}
+
+// OptimizeMetrics contains optimization statistics
+type OptimizeMetrics struct {
+	DuplicatesRemoved int
+	DeadPathsRemoved  int
+	PathsShortened    int
+	VarsSubstituted   int
+	TotalSaved        int
+	PercentageSaved   float64
+}
+
 // OptimizeResult contains the results of path optimization
 type OptimizeResult struct {
-	Original struct {
-		Raw     string
-		Entries []string
-		Length  int
-		Count   int
-	}
-	Optimized struct {
-		Raw     string
-		Entries []string
-		Length  int
-		Count   int
-	}
-	Changes []PathChange
-	Metrics struct {
-		DuplicatesRemoved int
-		DeadPathsRemoved  int
-		PathsShortened    int
-		VarsSubstituted   int
-		TotalSaved        int
-		PercentageSaved   float64
-	}
+	Original  PathInfo
+	Optimized PathInfo
+	Changes   []PathChange
+	Metrics   OptimizeMetrics
 }
 
 // NormalizePath normalizes a path for comparison
@@ -85,6 +86,144 @@ func Optimize(pathStr string, opts OptimizeOptions) OptimizeResult {
 }
 
 // OptimizeWithProgress optimizes a PATH string with progress reporting
+// entryProcessor handles optimization of a single PATH entry
+type entryProcessor struct {
+	opts   OptimizeOptions
+	result *OptimizeResult
+	seen   map[string]bool
+}
+
+// newEntryProcessor creates a new entry processor
+func newEntryProcessor(opts OptimizeOptions, result *OptimizeResult) *entryProcessor {
+	return &entryProcessor{
+		opts:   opts,
+		result: result,
+		seen:   make(map[string]bool),
+	}
+}
+
+// isDuplicate checks if entry is a duplicate
+func (p *entryProcessor) isDuplicate(entry, normalized string) bool {
+	if !p.opts.RemoveDuplicates {
+		return false
+	}
+	if p.seen[normalized] {
+		p.result.Changes = append(p.result.Changes, PathChange{
+			Type:     "duplicate",
+			Original: entry,
+		})
+		p.result.Metrics.DuplicatesRemoved++
+		return true
+	}
+	p.seen[normalized] = true
+	return false
+}
+
+// isDeadPath checks if entry is a dead path
+func (p *entryProcessor) isDeadPath(entry string) bool {
+	if !p.opts.RemoveDeadPaths {
+		return false
+	}
+	if strings.Contains(entry, "%") {
+		return false
+	}
+	if PathExists(entry) {
+		return false
+	}
+	p.result.Changes = append(p.result.Changes, PathChange{
+		Type:     "dead",
+		Original: entry,
+	})
+	p.result.Metrics.DeadPathsRemoved++
+	return true
+}
+
+// tryShorten attempts to shorten the path using 8.3 names
+func (p *entryProcessor) tryShorten(current string) string {
+	if !p.opts.ShortenPaths || strings.Contains(current, "%") {
+		return current
+	}
+	short, shortened := ToShortPath(current)
+	if !shortened || len(short) >= len(current) {
+		return current
+	}
+	saved := len(current) - len(short)
+	p.result.Changes = append(p.result.Changes, PathChange{
+		Type:     "shortened",
+		Original: current,
+		New:      short,
+		Saved:    saved,
+	})
+	p.result.Metrics.PathsShortened++
+	p.result.Metrics.TotalSaved += saved
+	return short
+}
+
+// trySubstituteVars attempts to substitute environment variables
+func (p *entryProcessor) trySubstituteVars(current string) string {
+	if !p.opts.SubstituteVars || strings.Contains(current, "%") {
+		return current
+	}
+	subst, substituted := SubstituteEnvVars(current)
+	if !substituted || len(subst) >= len(current) {
+		return current
+	}
+	saved := len(current) - len(subst)
+	p.result.Changes = append(p.result.Changes, PathChange{
+		Type:     "variable",
+		Original: current,
+		New:      subst,
+		Saved:    saved,
+	})
+	p.result.Metrics.VarsSubstituted++
+	p.result.Metrics.TotalSaved += saved
+	return subst
+}
+
+// tryShortenSuffix attempts to shorten the suffix after variable substitution
+func (p *entryProcessor) tryShortenSuffix(current string) string {
+	if !p.opts.ShortenPaths {
+		return current
+	}
+	shortSuffix, shortened := ShortenSuffix(current)
+	if !shortened || len(shortSuffix) >= len(current) {
+		return current
+	}
+	saved := len(current) - len(shortSuffix)
+	p.result.Changes = append(p.result.Changes, PathChange{
+		Type:     "shortened",
+		Original: current,
+		New:      shortSuffix,
+		Saved:    saved,
+	})
+	p.result.Metrics.PathsShortened++
+	p.result.Metrics.TotalSaved += saved
+	return shortSuffix
+}
+
+// processEntry processes a single entry and returns the optimized version or empty if skipped
+func (p *entryProcessor) processEntry(entry string) (string, bool) {
+	normalized := NormalizePath(entry)
+
+	if p.isDuplicate(entry, normalized) {
+		return "", false
+	}
+	if p.isDeadPath(entry) {
+		return "", false
+	}
+
+	current := entry
+	current = p.tryShorten(current)
+
+	beforeSubst := current
+	current = p.trySubstituteVars(current)
+	if current != beforeSubst {
+		current = p.tryShortenSuffix(current)
+	}
+
+	return current, true
+}
+
 func OptimizeWithProgress(pathStr string, opts OptimizeOptions, startIdx, total int, progress ProgressFunc) OptimizeResult {
 	result := OptimizeResult{}
 	entries := ParsePath(pathStr)
@@ -94,7 +233,7 @@ func OptimizeWithProgress(pathStr string, opts OptimizeOptions, startIdx, total 
 	result.Original.Length = len(pathStr)
 	result.Original.Count = len(entries)
 
-	seen := make(map[string]bool)
+	processor := newEntryProcessor(opts, &result)
 	optimized := make([]string, 0, len(entries))
 
 	for i, entry := range entries {
@@ -102,82 +241,9 @@ func OptimizeWithProgress(pathStr string, opts OptimizeOptions, startIdx, total 
 			progress(startIdx+i, total, entry)
 		}
 
-		// Check for duplicates
-		normalized := NormalizePath(entry)
-		if opts.RemoveDuplicates && seen[normalized] {
-			result.Changes = append(result.Changes, PathChange{
-				Type:     "duplicate",
-				Original: entry,
-			})
-			result.Metrics.DuplicatesRemoved++
-			continue
+		if processed, ok := processor.processEntry(entry); ok {
+			optimized = append(optimized, processed)
 		}
-		seen[normalized] = true
-
-		// Check if path exists
-		if opts.RemoveDeadPaths && !strings.Contains(entry, "%") && !PathExists(entry) {
-			result.Changes = append(result.Changes, PathChange{
-				Type:     "dead",
-				Original: entry,
-			})
-			result.Metrics.DeadPathsRemoved++
-			continue
-		}
-
-		current := entry
-
-		// Apply 8.3 shortening
-		if opts.ShortenPaths && !strings.Contains(entry, "%") {
-			short, shortened := ToShortPath(entry)
-			if shortened && len(short) < len(current) {
-				saved := len(current) - len(short)
-				result.Changes = append(result.Changes, PathChange{
-					Type:     "shortened",
-					Original: current,
-					New:      short,
-					Saved:    saved,
-				})
-				result.Metrics.PathsShortened++
-				result.Metrics.TotalSaved += saved
-				current = short
-			}
-		}
-
-		// Apply environment variable substitution
-		if opts.SubstituteVars && !strings.Contains(current, "%") {
-			subst, substituted := SubstituteEnvVars(current)
-			if substituted && len(subst) < len(current) {
-				saved := len(current) - len(subst)
-				result.Changes = append(result.Changes, PathChange{
-					Type:     "variable",
-					Original: current,
-					New:      subst,
-					Saved:    saved,
-				})
-				result.Metrics.VarsSubstituted++
-				result.Metrics.TotalSaved += saved
-				current = subst
-
-				// Try to shorten the suffix after variable substitution
-				if opts.ShortenPaths {
-					shortSuffix, shortened := ShortenSuffix(current)
-					if shortened && len(shortSuffix) < len(current) {
-						saved := len(current) - len(shortSuffix)
-						result.Changes = append(result.Changes, PathChange{
-							Type:     "shortened",
-							Original: current,
-							New:      shortSuffix,
-							Saved:    saved,
-						})
-						result.Metrics.PathsShortened++
-						result.Metrics.TotalSaved += saved
-						current = shortSuffix
-					}
-				}
-			}
-		}
-
-		optimized = append(optimized, current)
 	}
 
 	// Apply hot paths prioritization

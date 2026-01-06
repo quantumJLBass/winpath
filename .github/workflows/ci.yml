@@ -1,0 +1,46 @@
+name: CI Check
+
+# Trigger on pushes to main and any pull requests
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test-and-build:
+    name: Test and Verify Build
+    runs-on: windows-latest # Must be Windows because of registry.go
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21" # Matches your go.mod
+
+      - name: Download dependencies
+        run: go mod tidy
+
+      - name: Run Tests
+        # Runs all tests in the project to ensure logic is sound
+        run: go test ./...
+
+      - name: Verify Build
+        # We run the build just to make sure it compiles successfully.
+        # We do NOT upload the artifact here (that's for release.yml).
+        run: go build -ldflags="-s -w" -o WinPath.exe .
+
+      - name:
+          Run Tests with Coverage
+          # Update your existing test command to this:
+
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} # Optional for public repos, but good practice
+          file: ./coverage.txt

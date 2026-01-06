@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+// configDir can be overridden for testing
+var configDir string
+
+// SetConfigDir sets a custom config directory (for testing)
+func SetConfigDir(dir string) {
+	configDir = dir
+}
+
+// getConfigDir returns the config directory
+func getConfigDir() string {
+	if configDir != "" {
+		return configDir
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".syspath")
+}
+
 // Backup represents a saved PATH backup
 type Backup struct {
 	Timestamp  time.Time `json:"timestamp"`
@@ -53,14 +70,12 @@ func DefaultConfig() Config {
 
 // GetBackupDir returns the backup directory path
 func GetBackupDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".syspath", "backups")
+	return filepath.Join(getConfigDir(), "backups")
 }
 
 // GetConfigPath returns the config file path
 func GetConfigPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".syspath", "config.json")
+	return filepath.Join(getConfigDir(), "config.json")
 }
 
 // EnsureBackupDir creates the backup directory if it doesn't exist
@@ -76,7 +91,7 @@ func LoadConfig() Config {
 	if err != nil {
 		return config
 	}
-	json.Unmarshal(data, &config)
+	_ = json.Unmarshal(data, &config) // Ignore error, return default on failure
 	return config
 }
 
@@ -221,7 +236,7 @@ func EnforceBackupLimit() {
 
 	// Delete oldest backups
 	for i := config.MaxBackups; i < len(backups); i++ {
-		DeleteBackup(backups[i].Filename)
+		_ = DeleteBackup(backups[i].Filename) // Best effort cleanup
 	}
 }
 
@@ -233,7 +248,7 @@ func RestoreBackup(filename string, isAdmin bool) error {
 	}
 
 	// Create a backup of current state first
-	CreateBackup("pre-restore")
+	_, _ = CreateBackup("pre-restore") // Best effort, don't fail restore
 
 	// Restore user PATH
 	if backup.UserPath.Raw != "" {

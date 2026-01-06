@@ -1,0 +1,31 @@
+name: Code Quality
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+  # Optional: allow linter to post comments on PRs
+  pull-requests: read
+
+jobs:
+  golangci:
+    name: Lint (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          # We increase the timeout because Windows runners can be slightly slower
+          args: --timeout=5m

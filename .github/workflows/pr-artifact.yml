@@ -1,0 +1,28 @@
+name: Build PR Artifact
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build-artifact:
+    name: Build Test Binary
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Build Binary
+        run: go build -ldflags="-s -w" -o WinPath.exe .
+
+      # This uploads the .exe to the GitHub Actions run summary page
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WinPath-Test-Build
+          path: WinPath.exe
+          retention-days: 5

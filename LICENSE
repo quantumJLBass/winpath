@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 Quantum
+Copyright (c) 2025 Jeremy Bass
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,57 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+                            IMPORTANT DISCLAIMER
+================================================================================
+
+THIS SOFTWARE MODIFIES CRITICAL WINDOWS SYSTEM ENVIRONMENT VARIABLES.
+
+By using this software, you acknowledge and accept the following:
+
+1. SYSTEM MODIFICATION RISKS
+   This software directly modifies the Windows PATH and PATHEXT environment
+   variables, which are critical system configuration settings. Incorrect
+   modifications can result in:
+   - Applications failing to start or function correctly
+   - System instability or boot failures
+   - Loss of access to command-line tools
+   - Inability to run scripts or executables
+   - Other unpredictable system behavior
+
+2. NO WARRANTY
+   This software is provided "AS IS" without warranty of any kind. The author
+   makes no representations or warranties regarding the accuracy, reliability,
+   completeness, or timeliness of the software or its results.
+
+3. ASSUMPTION OF RISK
+   YOU USE THIS SOFTWARE ENTIRELY AT YOUR OWN RISK. The author shall not be
+   liable for any damages whatsoever, including but not limited to:
+   - Direct, indirect, incidental, or consequential damages
+   - Loss of data, profits, or business opportunities
+   - System downtime or recovery costs
+   - Any other damages arising from the use or inability to use this software
+
+4. USER RESPONSIBILITY
+   You are solely responsible for:
+   - Creating backups of your system and environment variables before use
+   - Verifying all changes before applying them
+   - Understanding the implications of modifying system environment variables
+   - Testing changes in a safe environment before production use
+   - Recovering your system if something goes wrong
+
+5. NO PROFESSIONAL ADVICE
+   This software does not constitute professional system administration advice.
+   If you are unsure about modifying your system, consult a qualified
+   professional before proceeding.
+
+6. BACKUP RECOMMENDATION
+   ALWAYS create a system restore point and/or backup your current PATH and
+   PATHEXT values before using this software. The built-in backup feature is
+   provided as a convenience but should not be your only safeguard.
+
+BY DOWNLOADING, INSTALLING, OR USING THIS SOFTWARE, YOU ACKNOWLEDGE THAT YOU
+HAVE READ THIS DISCLAIMER, UNDERSTAND IT, AND AGREE TO BE BOUND BY ITS TERMS.
+
+IF YOU DO NOT AGREE TO THESE TERMS, DO NOT USE THIS SOFTWARE.

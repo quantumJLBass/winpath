@@ -70,13 +70,13 @@ type tickMsg time.Time
 
 // Model is the main application model
 type Model struct {
-	screen       Screen
-	width        int
-	height       int
-	isAdmin      bool
-	err          error
-	message      string
-	clipboardOK  bool
+	screen      Screen
+	width       int
+	height      int
+	isAdmin     bool
+	err         error
+	message     string
+	clipboardOK bool
 
 	// Loading
 	loadingTask    LoadingTask
@@ -126,9 +126,9 @@ type Model struct {
 	config        path.Config
 
 	// Hot Paths
-	hotPathIndex   int
-	hotPathAdding  bool
-	hotPathInput   string
+	hotPathIndex  int
+	hotPathAdding bool
+	hotPathInput  string
 }
 
 // New creates a new model
@@ -300,7 +300,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(loadSuggestionsCmd(), tickCmd())
 		}
 		m.err = msg.err
-		m.message = "Failed: " + msg.err.Error()
+		if msg.err != nil {
+			m.message = "Failed: " + msg.err.Error()
+		} else {
+			m.message = "Failed to create junction"
+		}
 		m.screen = ScreenJunctionSuggestions
 		return m, nil
 
@@ -434,33 +438,37 @@ func (m Model) selectMenuItem() (Model, tea.Cmd) {
 	return m, nil
 }
 
+// setViewMode sets the view mode and resets scroll
+func (m Model) setViewMode(mode int) Model {
+	m.viewMode = mode
+	m.scrollOffset = 0
+	return m
+}
+
+// cycleScopeMode cycles through optimizer scopes
+func (m Model) cycleScopeMode() Model {
+	switch m.optimizerScope {
+	case "both":
+		m.optimizerScope = "system"
+	case "system":
+		m.optimizerScope = "user"
+	default:
+		m.optimizerScope = "both"
+	}
+	return m
+}
+
 func (m Model) handleOptimizerKey(key string) (Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
 		m.screen = ScreenMenu
 		m.analysis = nil
 		m.scrollOffset = 0
-	case "1":
-		m.viewMode = 0
-		m.scrollOffset = 0
-	case "2":
-		m.viewMode = 1
-		m.scrollOffset = 0
-	case "3":
-		m.viewMode = 2
-		m.scrollOffset = 0
-	case "4":
-		m.viewMode = 3
-		m.scrollOffset = 0
+	case "1", "2", "3", "4":
+		mode := int(key[0] - '1')
+		m = m.setViewMode(mode)
 	case "s", "S":
-		switch m.optimizerScope {
-		case "both":
-			m.optimizerScope = "system"
-		case "system":
-			m.optimizerScope = "user"
-		default:
-			m.optimizerScope = "both"
-		}
+		m = m.cycleScopeMode()
 	case "a", "A":
 		m.screen = ScreenOptimizerConfirm
 	case "up", "k":
@@ -525,6 +533,31 @@ func (m Model) handleViewerKey(key string) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleBackupCreate creates a manual backup
+func (m Model) handleBackupCreate() Model {
+	_, err := path.CreateBackup("manual")
+	if err != nil {
+		m.message = "Backup failed: " + err.Error()
+		return m
+	}
+	m.backups = path.ListBackups()
+	m.message = "Backup created!"
+	return m
+}
+
+// handleBackupView loads and shows backup preview
+func (m Model) handleBackupView() Model {
+	if len(m.backups) == 0 {
+		return m
+	}
+	if backup, err := path.LoadBackup(m.backups[m.backupIndex].Filename); err == nil {
+		m.backupPreview = backup
+		m.screen = ScreenBackupPreview
+		m.scrollOffset = 0
+	}
+	return m
+}
+
 func (m Model) handleBackupKey(key string) (Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
@@ -539,17 +572,9 @@ func (m Model) handleBackupKey(key string) (Model, tea.Cmd) {
 			m.backupIndex++
 		}
 	case "c", "C":
-		path.CreateBackup("manual")
-		m.backups = path.ListBackups()
-		m.message = "Backup created!"
+		m = m.handleBackupCreate()
 	case "v", "V":
-		if len(m.backups) > 0 {
-			if backup, err := path.LoadBackup(m.backups[m.backupIndex].Filename); err == nil {
-				m.backupPreview = backup
-				m.screen = ScreenBackupPreview
-				m.scrollOffset = 0
-			}
-		}
+		m = m.handleBackupView()
 	case "r", "R":
 		if len(m.backups) > 0 {
 			m.screen = ScreenBackupConfirmRestore
@@ -590,10 +615,13 @@ func (m Model) handleBackupConfirmKey(key string) (Model, tea.Cmd) {
 				m.clipboardOK = false
 			}
 		} else {
-			path.DeleteBackup(m.backups[m.backupIndex].Filename)
+			if err := path.DeleteBackup(m.backups[m.backupIndex].Filename); err != nil {
+				m.message = "Delete failed: " + err.Error()
+			} else {
+				m.message = "Backup deleted"
+			}
 			m.backups = path.ListBackups()
 			m.screen = ScreenBackup
-			m.message = "Backup deleted"
 			if m.backupIndex >= len(m.backups) && m.backupIndex > 0 {
 				m.backupIndex--
 			}
@@ -604,38 +632,64 @@ func (m Model) handleBackupConfirmKey(key string) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleJunctionsRefresh starts junction refresh
+func (m Model) handleJunctionsRefresh() (Model, tea.Cmd) {
+	m.screen = ScreenLoading
+	m.loadingTask = TaskJunctions
+	m.loadingMessage = "Refreshing junctions"
+	return m, tea.Batch(loadJunctionsCmd(), tickCmd())
+}
+
+// handleJunctionsSuggestions starts suggestion loading
+func (m Model) handleJunctionsSuggestions() (Model, tea.Cmd) {
+	m.screen = ScreenLoading
+	m.loadingTask = TaskSuggestions
+	m.loadingMessage = "Analyzing PATH for suggestions"
+	m.message = ""
+	return m, tea.Batch(loadSuggestionsCmd(), tickCmd())
+}
+
+// handleJunctionsCreate opens junction create screen
+func (m Model) handleJunctionsCreate() Model {
+	m.screen = ScreenJunctionCreate
+	m.junctionName = ""
+	m.junctionTarget = ""
+	m.junctionInputMode = 0
+	m.message = ""
+	m.err = nil
+	return m
+}
+
+// handleJunctionsDelete deletes the selected junction
+func (m Model) handleJunctionsDelete() Model {
+	if len(m.junctions) == 0 {
+		return m
+	}
+	if err := path.RemoveJunction(m.junctions[m.junctionIndex].Name); err != nil {
+		m.message = "Delete failed: " + err.Error()
+	} else {
+		m.message = "Junction deleted"
+	}
+	m.junctions = path.ListJunctions()
+	if m.junctionIndex >= len(m.junctions) && m.junctionIndex > 0 {
+		m.junctionIndex--
+	}
+	return m
+}
+
 func (m Model) handleJunctionsKey(key string) (Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
 		m.screen = ScreenMenu
 		m.message = ""
 	case "1":
-		m.screen = ScreenLoading
-		m.loadingTask = TaskJunctions
-		m.loadingMessage = "Refreshing junctions"
-		return m, tea.Batch(loadJunctionsCmd(), tickCmd())
+		return m.handleJunctionsRefresh()
 	case "2":
-		m.screen = ScreenLoading
-		m.loadingTask = TaskSuggestions
-		m.loadingMessage = "Analyzing PATH for suggestions"
-		m.message = ""
-		return m, tea.Batch(loadSuggestionsCmd(), tickCmd())
+		return m.handleJunctionsSuggestions()
 	case "3":
-		m.screen = ScreenJunctionCreate
-		m.junctionName = ""
-		m.junctionTarget = ""
-		m.junctionInputMode = 0
-		m.message = ""
-		m.err = nil
+		m = m.handleJunctionsCreate()
 	case "d", "D":
-		if len(m.junctions) > 0 {
-			path.RemoveJunction(m.junctions[m.junctionIndex].Name)
-			m.junctions = path.ListJunctions()
-			m.message = "Junction deleted"
-			if m.junctionIndex >= len(m.junctions) && m.junctionIndex > 0 {
-				m.junctionIndex--
-			}
-		}
+		m = m.handleJunctionsDelete()
 	case "up", "k":
 		if m.junctionIndex > 0 {
 			m.junctionIndex--
@@ -675,95 +729,141 @@ func (m Model) handleJunctionSuggestionsKey(key string) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleJunctionCreateEscape handles escape key in junction create
+func (m Model) handleJunctionCreateEscape() Model {
+	m.screen = ScreenJunctions
+	m.junctions = path.ListJunctions()
+	m.err = nil
+	return m
+}
+
+// handleJunctionCreateEnter handles enter key in junction create
+func (m Model) handleJunctionCreateEnter() Model {
+	if m.junctionInputMode == 0 && m.junctionName != "" {
+		m.junctionInputMode = 1
+		return m
+	}
+	if m.junctionInputMode == 1 && m.junctionTarget != "" && m.junctionName != "" {
+		if err := path.CreateJunction(m.junctionName, m.junctionTarget); err != nil {
+			m.err = err
+			m.message = "Failed: " + err.Error()
+		} else {
+			m.message = "Junction '" + m.junctionName + "' created!"
+			m.screen = ScreenJunctions
+			m.junctions = path.ListJunctions()
+			m.err = nil
+		}
+	}
+	return m
+}
+
+// handleJunctionCreateBackspace handles backspace in junction create
+func (m Model) handleJunctionCreateBackspace() Model {
+	if m.junctionInputMode == 0 && len(m.junctionName) > 0 {
+		m.junctionName = m.junctionName[:len(m.junctionName)-1]
+	} else if m.junctionInputMode == 1 && len(m.junctionTarget) > 0 {
+		m.junctionTarget = m.junctionTarget[:len(m.junctionTarget)-1]
+	}
+	return m
+}
+
+// handleJunctionCreateChar handles character input in junction create
+func (m Model) handleJunctionCreateChar(key string) Model {
+	if len(key) == 1 && key[0] >= 32 && key[0] <= 126 {
+		if m.junctionInputMode == 0 {
+			m.junctionName += key
+		} else {
+			m.junctionTarget += key
+		}
+	}
+	return m
+}
+
 func (m Model) handleJunctionCreateKey(key string) (Model, tea.Cmd) {
 	switch key {
 	case "esc":
-		m.screen = ScreenJunctions
-		m.junctions = path.ListJunctions()
-		m.err = nil
+		m = m.handleJunctionCreateEscape()
 	case "tab":
 		m.junctionInputMode = (m.junctionInputMode + 1) % 2
 	case "enter":
-		if m.junctionInputMode == 0 && m.junctionName != "" {
-			m.junctionInputMode = 1
-		} else if m.junctionInputMode == 1 && m.junctionTarget != "" && m.junctionName != "" {
-			if err := path.CreateJunction(m.junctionName, m.junctionTarget); err != nil {
-				m.err = err
-				m.message = "Failed: " + err.Error()
-			} else {
-				m.message = "Junction '" + m.junctionName + "' created!"
-				m.screen = ScreenJunctions
-				m.junctions = path.ListJunctions()
-				m.err = nil
-			}
-		}
+		m = m.handleJunctionCreateEnter()
 	case "backspace":
-		if m.junctionInputMode == 0 && len(m.junctionName) > 0 {
-			m.junctionName = m.junctionName[:len(m.junctionName)-1]
-		} else if m.junctionInputMode == 1 && len(m.junctionTarget) > 0 {
-			m.junctionTarget = m.junctionTarget[:len(m.junctionTarget)-1]
-		}
+		m = m.handleJunctionCreateBackspace()
 	default:
-		if len(key) == 1 && key[0] >= 32 && key[0] <= 126 {
-			if m.junctionInputMode == 0 {
-				m.junctionName += key
-			} else {
-				m.junctionTarget += key
-			}
-		}
+		m = m.handleJunctionCreateChar(key)
 	}
 	return m, nil
 }
 
-func (m Model) handlePathExtKey(key string) (Model, tea.Cmd) {
-	if m.pathExtEditing {
-		switch key {
-		case "esc":
-			m.pathExtEditing = false
-		case "up", "k":
-			if m.pathExtIndex > 0 {
-				m.pathExtIndex--
-			}
-		case "down", "j":
-			if m.pathExtIndex < len(m.pathExtList)-1 {
-				m.pathExtIndex++
-			}
-		case "K", "U", "u": // Move up
-			if m.pathExtIndex > 0 {
-				m.pathExtList[m.pathExtIndex], m.pathExtList[m.pathExtIndex-1] = m.pathExtList[m.pathExtIndex-1], m.pathExtList[m.pathExtIndex]
-				m.pathExtIndex--
-				m.updatePathExtOpt()
-			}
-		case "J", "D", "d": // Move down
-			if m.pathExtIndex < len(m.pathExtList)-1 {
-				m.pathExtList[m.pathExtIndex], m.pathExtList[m.pathExtIndex+1] = m.pathExtList[m.pathExtIndex+1], m.pathExtList[m.pathExtIndex]
-				m.pathExtIndex++
-				m.updatePathExtOpt()
-			}
-		case "x", "X", "delete": // Remove
-			if len(m.pathExtList) > 1 {
-				m.pathExtList = append(m.pathExtList[:m.pathExtIndex], m.pathExtList[m.pathExtIndex+1:]...)
-				if m.pathExtIndex >= len(m.pathExtList) {
-					m.pathExtIndex = len(m.pathExtList) - 1
-				}
-				m.updatePathExtOpt()
-			}
-		case "a", "A": // Apply from edit mode
-			m.pathExtEditing = false
-			m.screen = ScreenPathExtConfirm
+// handlePathExtEditKey handles keys when in PATHEXT edit mode
+func (m Model) handlePathExtEditKey(key string) Model {
+	switch key {
+	case "esc":
+		m.pathExtEditing = false
+	case "up", "k":
+		if m.pathExtIndex > 0 {
+			m.pathExtIndex--
 		}
-		return m, nil
+	case "down", "j":
+		if m.pathExtIndex < len(m.pathExtList)-1 {
+			m.pathExtIndex++
+		}
+	case "K", "U", "u":
+		m = m.movePathExtUp()
+	case "J", "D", "d":
+		m = m.movePathExtDown()
+	case "x", "X", "delete":
+		m = m.removePathExtEntry()
+	case "a", "A":
+		m.pathExtEditing = false
+		m.screen = ScreenPathExtConfirm
 	}
+	return m
+}
 
+// movePathExtUp moves current extension up in priority
+func (m Model) movePathExtUp() Model {
+	if m.pathExtIndex > 0 {
+		m.pathExtList[m.pathExtIndex], m.pathExtList[m.pathExtIndex-1] = m.pathExtList[m.pathExtIndex-1], m.pathExtList[m.pathExtIndex]
+		m.pathExtIndex--
+		m.updatePathExtOpt()
+	}
+	return m
+}
+
+// movePathExtDown moves current extension down in priority
+func (m Model) movePathExtDown() Model {
+	if m.pathExtIndex < len(m.pathExtList)-1 {
+		m.pathExtList[m.pathExtIndex], m.pathExtList[m.pathExtIndex+1] = m.pathExtList[m.pathExtIndex+1], m.pathExtList[m.pathExtIndex]
+		m.pathExtIndex++
+		m.updatePathExtOpt()
+	}
+	return m
+}
+
+// removePathExtEntry removes the current extension from the list
+func (m Model) removePathExtEntry() Model {
+	if len(m.pathExtList) > 1 {
+		m.pathExtList = append(m.pathExtList[:m.pathExtIndex], m.pathExtList[m.pathExtIndex+1:]...)
+		if m.pathExtIndex >= len(m.pathExtList) {
+			m.pathExtIndex = len(m.pathExtList) - 1
+		}
+		m.updatePathExtOpt()
+	}
+	return m
+}
+
+// handlePathExtNormalKey handles keys in normal PATHEXT view mode
+func (m Model) handlePathExtNormalKey(key string) Model {
 	switch key {
 	case "esc", "q":
 		m.screen = ScreenMenu
-	case "e", "E": // Enter edit mode
+	case "e", "E":
 		m.pathExtEditing = true
 		m.pathExtList = make([]string, len(m.pathExtAnalysis.Current))
 		copy(m.pathExtList, m.pathExtAnalysis.Current)
 		m.pathExtIndex = 0
-	case "o", "O": // Use optimized order
+	case "o", "O":
 		if m.pathExtOpt != nil && m.pathExtOpt.Changed {
 			m.pathExtList = make([]string, len(m.pathExtOpt.Optimized))
 			copy(m.pathExtList, m.pathExtOpt.Optimized)
@@ -775,7 +875,14 @@ func (m Model) handlePathExtKey(key string) (Model, tea.Cmd) {
 			m.screen = ScreenPathExtConfirm
 		}
 	}
-	return m, nil
+	return m
+}
+
+func (m Model) handlePathExtKey(key string) (Model, tea.Cmd) {
+	if m.pathExtEditing {
+		return m.handlePathExtEditKey(key), nil
+	}
+	return m.handlePathExtNormalKey(key), nil
 }
 
 func (m *Model) updatePathExtOpt() {
@@ -792,6 +899,11 @@ func (m *Model) updatePathExtOpt() {
 func (m Model) handlePathExtConfirmKey(key string) (Model, tea.Cmd) {
 	switch key {
 	case "y", "Y":
+		if m.pathExtOpt == nil {
+			m.err = fmt.Errorf("no optimization to apply")
+			m.screen = ScreenPathExt
+			return m, nil
+		}
 		scope := "User"
 		if m.isAdmin {
 			scope = "System"
@@ -831,53 +943,48 @@ func (m Model) handleSettingsKey(key string) (Model, tea.Cmd) {
 		case 1:
 			m.config.AutoBackup = !m.config.AutoBackup
 		}
-		path.SaveConfig(m.config)
+		_ = path.SaveConfig(m.config) // Intentionally ignore error for UI config
 	}
 	return m, nil
 }
 
-func (m Model) handleHotPathsKey(key string) (Model, tea.Cmd) {
-	if m.hotPathAdding {
-		switch key {
-		case "esc":
-			m.hotPathAdding = false
+// handleHotPathsInputKey handles keys when in hot path input mode
+func (m Model) handleHotPathsInputKey(key string) Model {
+	switch key {
+	case "esc":
+		m.hotPathAdding = false
+		m.hotPathInput = ""
+	case "enter":
+		if m.hotPathInput != "" {
+			m.config.HotPaths = append(m.config.HotPaths, m.hotPathInput)
+			_ = path.SaveConfig(m.config) // Intentionally ignore error for UI config
 			m.hotPathInput = ""
-		case "enter":
-			if m.hotPathInput != "" {
-				m.config.HotPaths = append(m.config.HotPaths, m.hotPathInput)
-				path.SaveConfig(m.config)
-				m.hotPathInput = ""
-				m.hotPathAdding = false
-				m.message = "Path added!"
-			}
-		case "backspace":
-			if len(m.hotPathInput) > 0 {
-				m.hotPathInput = m.hotPathInput[:len(m.hotPathInput)-1]
-			}
-		default:
-			if len(key) == 1 && key[0] >= 32 && key[0] <= 126 {
-				m.hotPathInput += key
-			}
+			m.hotPathAdding = false
+			m.message = "Path added!"
 		}
-		return m, nil
+	case "backspace":
+		if len(m.hotPathInput) > 0 {
+			m.hotPathInput = m.hotPathInput[:len(m.hotPathInput)-1]
+		}
+	default:
+		if len(key) == 1 && key[0] >= 32 && key[0] <= 126 {
+			m.hotPathInput += key
+		}
 	}
+	return m
+}
 
+// handleHotPathsNavKey handles navigation and action keys for hot paths
+func (m Model) handleHotPathsNavKey(key string) Model {
 	switch key {
 	case "esc", "q":
 		m.screen = ScreenMenu
 		m.message = ""
-	case "a", "A": // Add
+	case "a", "A":
 		m.hotPathAdding = true
 		m.hotPathInput = ""
-	case "d", "x", "X": // Delete (lowercase d, or x/X)
-		if len(m.config.HotPaths) > 0 && m.hotPathIndex < len(m.config.HotPaths) {
-			m.config.HotPaths = append(m.config.HotPaths[:m.hotPathIndex], m.config.HotPaths[m.hotPathIndex+1:]...)
-			path.SaveConfig(m.config)
-			if m.hotPathIndex >= len(m.config.HotPaths) && m.hotPathIndex > 0 {
-				m.hotPathIndex--
-			}
-			m.message = "Path removed"
-		}
+	case "d", "x", "X":
+		m = m.deleteCurrentHotPath()
 	case "up", "k":
 		if m.hotPathIndex > 0 {
 			m.hotPathIndex--
@@ -886,20 +993,52 @@ func (m Model) handleHotPathsKey(key string) (Model, tea.Cmd) {
 		if m.hotPathIndex < len(m.config.HotPaths)-1 {
 			m.hotPathIndex++
 		}
-	case "K", "U": // Move up in priority
-		if m.hotPathIndex > 0 {
-			m.config.HotPaths[m.hotPathIndex], m.config.HotPaths[m.hotPathIndex-1] = m.config.HotPaths[m.hotPathIndex-1], m.config.HotPaths[m.hotPathIndex]
-			m.hotPathIndex--
-			path.SaveConfig(m.config)
-		}
-	case "J", "D": // Move down
-		if m.hotPathIndex < len(m.config.HotPaths)-1 {
-			m.config.HotPaths[m.hotPathIndex], m.config.HotPaths[m.hotPathIndex+1] = m.config.HotPaths[m.hotPathIndex+1], m.config.HotPaths[m.hotPathIndex]
-			m.hotPathIndex++
-			path.SaveConfig(m.config)
-		}
+	case "K", "U":
+		m = m.moveHotPathUp()
+	case "J", "D":
+		m = m.moveHotPathDown()
 	}
-	return m, nil
+	return m
+}
+
+// deleteCurrentHotPath removes the currently selected hot path
+func (m Model) deleteCurrentHotPath() Model {
+	if len(m.config.HotPaths) > 0 && m.hotPathIndex < len(m.config.HotPaths) {
+		m.config.HotPaths = append(m.config.HotPaths[:m.hotPathIndex], m.config.HotPaths[m.hotPathIndex+1:]...)
+		_ = path.SaveConfig(m.config) // Intentionally ignore error for UI config
+		if m.hotPathIndex >= len(m.config.HotPaths) && m.hotPathIndex > 0 {
+			m.hotPathIndex--
+		}
+		m.message = "Path removed"
+	}
+	return m
+}
+
+// moveHotPathUp moves current hot path up in priority
+func (m Model) moveHotPathUp() Model {
+	if m.hotPathIndex > 0 {
+		m.config.HotPaths[m.hotPathIndex], m.config.HotPaths[m.hotPathIndex-1] = m.config.HotPaths[m.hotPathIndex-1], m.config.HotPaths[m.hotPathIndex]
+		m.hotPathIndex--
+		_ = path.SaveConfig(m.config) // Intentionally ignore error for UI config
+	}
+	return m
+}
+
+// moveHotPathDown moves current hot path down in priority
+func (m Model) moveHotPathDown() Model {
+	if m.hotPathIndex < len(m.config.HotPaths)-1 {
+		m.config.HotPaths[m.hotPathIndex], m.config.HotPaths[m.hotPathIndex+1] = m.config.HotPaths[m.hotPathIndex+1], m.config.HotPaths[m.hotPathIndex]
+		m.hotPathIndex++
+		_ = path.SaveConfig(m.config) // Intentionally ignore error for UI config
+	}
+	return m
+}
+
+func (m Model) handleHotPathsKey(key string) (Model, tea.Cmd) {
+	if m.hotPathAdding {
+		return m.handleHotPathsInputKey(key), nil
+	}
+	return m.handleHotPathsNavKey(key), nil
 }
 
 // View renders the UI
@@ -955,10 +1094,10 @@ func (m Model) viewLoading() string {
 	dots := strings.Repeat(".", m.loadingDots)
 	padding := strings.Repeat(" ", 3-m.loadingDots)
 	spinner := SelectedStyle.Render("[") + SuccessStyle.Render(dots) + padding + SelectedStyle.Render("]")
-	
+
 	var b strings.Builder
 	b.WriteString("\n\n  " + spinner + "  " + TitleStyle.Render(m.loadingMessage) + "\n\n")
-	
+
 	// Show progress if available
 	if m.loadingTotal > 0 {
 		// Progress bar
@@ -971,7 +1110,7 @@ func (m Model) viewLoading() string {
 		bar := SuccessStyle.Render(strings.Repeat("=", filled)) + DimStyle.Render(strings.Repeat("-", barWidth-filled))
 		b.WriteString("  [" + bar + "] " + DimStyle.Render(fmt.Sprintf("%d/%d", m.loadingCurrent, m.loadingTotal)) + "\n\n")
 	}
-	
+
 	// Show current item being processed
 	if m.loadingItem != "" {
 		item := m.loadingItem
@@ -982,7 +1121,7 @@ func (m Model) viewLoading() string {
 	} else {
 		b.WriteString("  " + DimStyle.Render("Please wait...") + "\n")
 	}
-	
+
 	return b.String()
 }
 
@@ -1680,7 +1819,7 @@ func (m Model) viewHotPaths() string {
 }
 
 func wrapText(text string, width int) string {
-	if len(text) <= width {
+	if width <= 0 || len(text) <= width {
 		return text
 	}
 	var result strings.Builder

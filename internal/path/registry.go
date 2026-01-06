@@ -3,7 +3,6 @@ package path
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -15,14 +14,9 @@ const (
 )
 
 // RunPowerShell executes a PowerShell command and returns the output
+// Uses DefaultRunner which can be mocked for testing
 func RunPowerShell(command string) (string, error) {
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
-	cmd.SysProcAttr = nil // Let it inherit, but we capture output
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
+	return DefaultRunner.Run(command)
 }
 
 // GetPathRaw gets the raw PATH value from registry without expanding variables
@@ -46,11 +40,96 @@ func GetPathRaw(scope string) (string, error) {
 func GetPathExpanded(scope string) (string, error) {
 	var command string
 	if scope == "System" {
-		command = `[Environment]::GetEnvironmentVariable('Path', 'Machine')`
+		// Get raw then expand environment variables
+		command = `[System.Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path', 'Machine'))`
 	} else {
-		command = `[Environment]::GetEnvironmentVariable('Path', 'User')`
+		command = `[System.Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path', 'User'))`
 	}
-	return RunPowerShell(command)
+	result, err := RunPowerShell(command)
+	if err != nil {
+		return result, err
+	}
+
+	// Expand 8.3 short names in a single batched PowerShell call
+	entries := ParsePath(result)
+	expanded := expandShortNamesBatch(entries)
+	return JoinPath(expanded), nil
+}
+
+// expandShortNamesBatch expands all 8.3 short names in a single PowerShell call
+// This avoids the overhead of spawning a new PowerShell process for each path
+func expandShortNamesBatch(paths []string) []string {
+	// Separate paths that need expansion from those that don't
+	needsExpansion := make([]int, 0)
+	for i, p := range paths {
+		if strings.Contains(p, "~") && !strings.Contains(p, "%") {
+			needsExpansion = append(needsExpansion, i)
+		}
+	}
+
+	// If nothing needs expansion, return as-is
+	if len(needsExpansion) == 0 {
+		return paths
+	}
+
+	// Build a single PowerShell script that expands all paths at once
+	var sb strings.Builder
+	sb.WriteString("$paths = @(\n")
+	for i, idx := range needsExpansion {
+		escaped := strings.ReplaceAll(paths[idx], "'", "''")
+		if i > 0 {
+			sb.WriteString(",\n")
+		}
+		sb.WriteString(fmt.Sprintf("    '%s'", escaped))
+	}
+	sb.WriteString("\n)\n")
+	sb.WriteString(`
+$results = @()
+foreach ($p in $paths) {
+    $expanded = $p
+    if (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue) {
+        try {
+            $item = Get-Item -LiteralPath $p -Force -ErrorAction Stop
+            $expanded = $item.FullName
+        } catch {}
+    }
+    $results += $expanded
+}
+$results -join '|'
+`)
+
+	result, err := RunPowerShell(sb.String())
+	if err != nil || result == "" {
+		return paths // Return original on error
+	}
+
+	// Parse results and update paths
+	expanded := strings.Split(strings.TrimSpace(result), "|")
+	output := make([]string, len(paths))
+	copy(output, paths)
+
+	for i, idx := range needsExpansion {
+		if i < len(expanded) && expanded[i] != "" {
+			output[idx] = expanded[i]
+		}
+	}
+
+	return output
+}
+
+// expandShortName expands a single 8.3 short name (used by other code if needed)
+func expandShortName(p string) string {
+	// Skip paths with environment variables
+	if strings.Contains(p, "%") {
+		return p
+	}
+	// Skip paths without 8.3 pattern
+	if !strings.Contains(p, "~") {
+		return p
+	}
+	// For single paths, just use the batch function with one item
+	result := expandShortNamesBatch([]string{p})
+	return result[0]
 }
 
 // SetPath sets the PATH value in registry
@@ -96,7 +175,7 @@ func BroadcastEnvChange() {
 "@
 		[EnvBroadcast]::Broadcast()
 	`
-	RunPowerShell(command)
+	_, _ = RunPowerShell(command) // Best effort broadcast
 }
 
 // GetHostname returns the computer name

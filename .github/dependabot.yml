@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Maintain Go modules (your app dependencies)
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      Optional: assign these PRs to you automatically
+      assignees:
+        - "quantumJLBass"
+
+  # Maintain GitHub Actions (the automation scripts themselves)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
