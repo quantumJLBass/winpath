@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"syspath-optimizer/internal/tui"
+	"github.com/quantumJLBass/winpath/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

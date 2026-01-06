@@ -1,4 +1,4 @@
-module syspath-optimizer
+module github.com/quantumJLBass/winpath
 
 go 1.23
 

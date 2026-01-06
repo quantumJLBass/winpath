@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"syspath-optimizer/internal/path"
+	"github.com/quantumJLBass/winpath/internal/path"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"

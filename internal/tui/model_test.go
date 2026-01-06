@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"syspath-optimizer/internal/path"
+	"github.com/quantumJLBass/winpath/internal/path"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
